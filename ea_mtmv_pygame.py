@@ -228,6 +228,7 @@ def get_best(population, dist_matrix, packages, num_robots):
 # ============== SIMULATION CLASS ==============
 class Simulation:
     def __init__(self):
+        self.generations = 200
         self.reset()
     
     def reset(self):
@@ -256,10 +257,10 @@ class Simulation:
         locations += [(r['x'], r['y']) for r in ROBOTS_INIT]
         dist_matrix = build_distance_matrix(locations)
         
-        self.log(f"Running EA ({GENERATIONS} gens)...")
+        self.log(f"Running EA ({self.generations} gens)...")
         population = init_population(POP_SIZE, PACKAGES, len(ROBOTS_INIT))
         
-        for gen in range(GENERATIONS):
+        for gen in range(self.generations):
             population = evolve(population, dist_matrix, PACKAGES, len(ROBOTS_INIT))
             self.generation = gen + 1
         
@@ -377,6 +378,10 @@ def main():
                     sim.speed = max(1, sim.speed - 1)
                 elif event.key == pygame.K_s and sim.solved:
                     sim.step()
+                elif event.key == pygame.K_UP and not sim.ea_done:
+                    sim.generations = min(2000, sim.generations + 50)
+                elif event.key == pygame.K_DOWN and not sim.ea_done:
+                    sim.generations = max(50, sim.generations - 50)
         
         # Update
         if sim.running and not sim.all_done():
@@ -440,8 +445,10 @@ def main():
         screen.blit(small_font.render("SPACE = Start/Pause", True, TEXT_COLOR), (panel_x, y)); y += 20
         screen.blit(small_font.render("S = Step", True, TEXT_COLOR), (panel_x, y)); y += 20
         screen.blit(small_font.render("R = Reset", True, TEXT_COLOR), (panel_x, y)); y += 20
-        screen.blit(small_font.render("+/- = Speed", True, TEXT_COLOR), (panel_x, y)); y += 30
+        screen.blit(small_font.render("+/- = Speed", True, TEXT_COLOR), (panel_x, y)); y += 20
+        screen.blit(small_font.render("UP/DOWN = Generations", True, TEXT_COLOR), (panel_x, y)); y += 30
         
+        screen.blit(font.render(f"Generations: {sim.generations}", True, (255,200,100) if not sim.ea_done else (100,100,100)), (panel_x, y)); y += 25
         screen.blit(font.render(f"Speed: {sim.speed}", True, TEXT_COLOR), (panel_x, y)); y += 25
         screen.blit(font.render(f"Makespan: {sim.makespan}", True, DEPOSIT_COLOR), (panel_x, y)); y += 25
         status = "DONE!" if sim.all_done() else ("Running" if sim.running else "Paused")
