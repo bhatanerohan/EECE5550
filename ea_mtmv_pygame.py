@@ -297,24 +297,30 @@ class Simulation:
         self.logs.append(msg)
         if len(self.logs) > 12:
             self.logs.pop(0)
-    
+
+    # run EA genetic algorithm
+    # build distance matrix, evolve pop, assign tours
     def solve_ea(self):
         self.log("Building distance matrix...")
+        # construct location list: deposit, packages, robot starts
         locations = [(DEPOSIT['x'], DEPOSIT['y'])]
         locations += [(p['x'], p['y']) for p in PACKAGES]
         locations += [(r['x'], r['y']) for r in ROBOTS_INIT]
         dist_matrix = build_distance_matrix(locations)
-        
+
+        # run EA
         self.log(f"Running EA ({self.generations} gens)...")
         population = init_population(POP_SIZE, PACKAGES, len(ROBOTS_INIT))
         
         for gen in range(self.generations):
             population = evolve(population, dist_matrix, PACKAGES, len(ROBOTS_INIT))
             self.generation = gen + 1
-        
+
+        # get best solution
         best, makespan = get_best(population, dist_matrix, PACKAGES, len(ROBOTS_INIT))
         self.makespan = makespan
-        
+
+        # assign tours
         for r in range(len(self.robots)):
             self.robots[r]['tour'] = [PACKAGES[i]['id'] for i in best[r]]
             self.robots[r]['phase'] = 'toPackage' if self.robots[r]['tour'] else 'idle'
@@ -326,24 +332,29 @@ class Simulation:
             self.log(f"R{r['id']}: {r['tour']}")
     
     def step(self):
+        # execute one sim time step
+        # path assignment, movement, collision avoidance
         if not self.solved:
             return
         
         for r in self.robots:
+            # handle wait for collision avoidance
             if r['waiting'] > 0:
                 r['waiting'] -= 1
                 continue
             
-            # Assign path if needed
+            # Assign path if needed and robot not idle
             if not r['path'] and r['phase'] != 'idle':
                 if r['phase'] == 'toPackage' and r['tour_idx'] < len(r['tour']):
+                    # path to next package in tour
                     pkg = next((p for p in self.packages if p['id'] == r['tour'][r['tour_idx']]), None)
                     if pkg:
                         r['path'] = a_star((r['x'], r['y']), (pkg['x'], pkg['y']))[1:]
                 elif r['phase'] == 'toDeposit':
+                    # path to deposit zone
                     r['path'] = a_star((r['x'], r['y']), (DEPOSIT['x'], DEPOSIT['y']))[1:]
             
-            # Move
+            # ===== Move and colission avoidance =====
             if r['path']:
                 next_pos = r['path'][0]
                 # Collision check (skip idle robots)
@@ -354,33 +365,40 @@ class Simulation:
                     if (next_pos[0], next_pos[1]) == (other['x'], other['y']):
                         collision = True
                         break
-                
+                        
+                # lower priority robot yields
                 if collision and r['id'] > other['id']:
-                    # Sidestep
+                    # attempt sidestep
                     for dx, dy in [(1,0),(-1,0),(0,1),(0,-1)]:
                         side = (r['x'] + dx, r['y'] + dy)
+                        # check if sidestep valid
                         if 0 <= side[0] < GRID_SIZE and 0 <= side[1] < GRID_SIZE:
                             if side not in SHELVES and not any(o['x']==side[0] and o['y']==side[1] for o in self.robots if o['id']!=r['id']):
+                                # perform sidestep and recompute path
                                 r['x'], r['y'] = side
                                 target = (DEPOSIT['x'], DEPOSIT['y']) if r['phase']=='toDeposit' else (next((p for p in self.packages if p['id']==r['tour'][r['tour_idx']]))['x'], next((p for p in self.packages if p['id']==r['tour'][r['tour_idx']]))['y'])
                                 r['path'] = a_star(side, target)[1:]
                                 self.log(f"R{r['id']} sidestepped")
                                 break
                     else:
+                        # wait if no sidestep valid
                         r['waiting'] = 2
                 else:
+                    # no collision or higher priority triggers next move
                     r['x'], r['y'] = next_pos
                     r['path'] = r['path'][1:]
             
-            # Pickup
+            # package pickup
             if r['phase'] == 'toPackage' and not r['path'] and r['tour_idx'] < len(r['tour']):
                 pkg = next((p for p in self.packages if p['id'] == r['tour'][r['tour_idx']]), None)
                 if pkg and r['x'] == pkg['x'] and r['y'] == pkg['y']:
+                    # pickup package
                     pkg['visits_done'] += 1
                     r['carrying'].append(pkg['id'])
                     self.log(f"R{r['id']} picked #{pkg['id']}")
                     r['tour_idx'] += 1
-                    
+
+                    # check if need to deposit (end of tour or package capacity)
                     if len(r['carrying']) >= ROBOT_CAPACITY or r['tour_idx'] >= len(r['tour']):
                         r['phase'] = 'toDeposit'
             
